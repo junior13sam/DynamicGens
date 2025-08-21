@@ -338,4 +338,65 @@
             parents: {parent-one: parent-one-id, parent-two: parent-two-id}
           }))))))
 
+;; Advanced mint function with algorithmic trait generation
+(define-public (mint-dynamic-nft (recipient principal))
+  (let ((token-id (var-get next-token-id))
+        (generation-seed (generate-random-seed recipient token-id)))
+    
+    ;; Validate contract state and minting conditions
+    (asserts! (not (var-get contract-paused)) err-contract-paused)
+    (asserts! (<= token-id collection-limit) err-mint-limit-exceeded)
+    (asserts! (>= (stx-get-balance tx-sender) mint-price) err-insufficient-balance)
+    
+    ;; Generate traits using algorithmic randomization
+    (let ((bg-trait (mod (/ generation-seed u1000) max-traits-per-category))
+          (body-trait (mod (/ generation-seed u100) max-traits-per-category))  
+          (eyes-trait (mod (/ generation-seed u10) max-traits-per-category))
+          (mouth-trait (mod generation-seed max-traits-per-category))
+          (acc-trait (mod (+ generation-seed block-height) max-traits-per-category)))
+      
+      ;; Create trait map with generated values
+      (let ((generated-traits {
+              background: bg-trait,
+              body: body-trait,
+              eyes: eyes-trait, 
+              mouth: mouth-trait,
+              accessory: acc-trait
+            }))
+        
+        ;; Validate generated traits and calculate rarity
+        (asserts! (validate-traits generated-traits) err-invalid-trait)
+        (let ((rarity (calculate-rarity-score generated-traits u1))
+              (final-traits {
+                background: bg-trait,
+                body: body-trait,
+                eyes: eyes-trait,
+                mouth: mouth-trait,
+                accessory: acc-trait,
+                rarity-score: rarity,
+                generation-seed: generation-seed,
+                generation: u1,
+                birth-block: block-height,
+                evolution-count: u0,
+                parent-one: none,
+                parent-two: none
+              }))
+          
+          ;; Execute mint transaction with payment processing
+          (try! (stx-transfer? mint-price tx-sender contract-owner))
+          
+          ;; Store NFT data and update contract state
+          (map-set token-owners token-id recipient)
+          (map-set nft-traits token-id final-traits)
+          ;; FIXED: Use helper function to ensure proper URI length
+          (map-set token-uris token-id (create-token-uri token-id))
+          (try! (add-token-to-owner recipient token-id))
+          
+          ;; Update global counters
+          (var-set next-token-id (+ token-id u1))
+          (var-set total-minted (+ (var-get total-minted) u1))
+          
+          ;; Return success with token details
+          (ok {token-id: token-id, traits: generated-traits, rarity: rarity}))))))
+
 
